@@ -30,7 +30,7 @@ def get_trace_set_path() -> str:
 def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
     """Run benchmark locally and return results."""
     if config is None:
-        config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
+        config = BenchmarkConfig(warmup_runs=3, iterations=10, num_trials=5)
 
     trace_set_path = get_trace_set_path()
     trace_set = TraceSet.from_path(trace_set_path)
