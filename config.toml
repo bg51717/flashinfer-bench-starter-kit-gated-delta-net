@@ -5,4 +5,4 @@ author = "antnlp"              # Team/author name
 
 [build]
 language = "triton"               # triton | cuda
-entry_point = "kernel.py::kernel_fi_baseline"            # Kernel function name
+entry_point = "kernel.py::kernel_fla_tma"            # Kernel function name
