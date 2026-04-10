@@ -46,6 +46,8 @@ def pack_solution(output_path: Path = None) -> Path:
         source_dir = PROJECT_ROOT / "solution" / "triton"
     elif language == "cuda":
         source_dir = PROJECT_ROOT / "solution" / "cuda"
+    elif language == "tilelang":
+        source_dir = PROJECT_ROOT / "solution" / "tilelang"
     else:
         raise ValueError(f"Unsupported language: {language}")
 
@@ -57,6 +59,7 @@ def pack_solution(output_path: Path = None) -> Path:
         language=language,
         target_hardware=["cuda"],
         entry_point=entry_point,
+        destination_passing_style=False,
     )
 
     # Pack the solution
@@ -86,12 +89,15 @@ def main():
     """Entry point for pack_solution script."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Pack solution files into solution.json")
+    parser = argparse.ArgumentParser(
+        description="Pack solution files into solution.json"
+    )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         default=None,
-        help="Output path for solution.json (default: ./solution.json)"
+        help="Output path for solution.json (default: ./solution.json)",
     )
     args = parser.parse_args()
 
@@ -103,4 +109,16 @@ def main():
 
 
 if __name__ == "__main__":
+    #   先执行以下命令安装依赖：
+    #   CUTLASS_INCLUDE=$(python3 -c "import flashinfer; from pathlib import Path; p=Path(flashinfer.__file__).parent/'data'/'cutlass'/'include'; print(p)")
+    #   export CPLUS_INCLUDE_PATH="$CUTLASS_INCLUDE:${CPLUS_INCLUDE_PATH:-}"
+
+    import flashinfer
+    import os
+
+    CUTLASS_INCLUDE = Path(flashinfer.__file__).parent / "data" / "cutlass" / "include"
+    os.environ["CPLUS_INCLUDE_PATH"] = (
+        f"{CUTLASS_INCLUDE}:{os.environ.get('CPLUS_INCLUDE_PATH', '')}".rstrip(":")
+    )
+
     main()

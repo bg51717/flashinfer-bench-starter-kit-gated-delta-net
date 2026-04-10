@@ -6,6 +6,7 @@ Automatically packs the solution from source files and runs benchmarks locally.
 
 import os
 import sys
+import json
 from pathlib import Path
 
 # Add project root to path for imports
@@ -27,9 +28,12 @@ def get_trace_set_path() -> str:
     return path
 
 
-def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
-    """Run benchmark locally and return results."""
+def run_benchmark(
+    solution: Solution, config: BenchmarkConfig = None
+) -> tuple[dict, TraceSet]:
+    """Run benchmark locally and return summary results with trace set."""
     if config is None:
+        # config = BenchmarkConfig(warmup_runs=2, iterations=2, num_trials=2)
         config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
 
     trace_set_path = get_trace_set_path()
@@ -53,7 +57,11 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
     )
 
     benchmark = Benchmark(bench_trace_set, config)
-    result_trace_set = benchmark.run_all(dump_traces=True)
+
+    try:
+        result_trace_set = benchmark.run_all(dump_traces=True)
+    finally:
+        benchmark.close()
 
     traces = result_trace_set.traces.get(definition.name, [])
     results = {definition.name: {}}
@@ -64,38 +72,86 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
                 "status": trace.evaluation.status.value,
                 "solution": trace.solution,
             }
+
+            # 报错的话打印日志
+            if entry["status"] != "PASSED":
+                print(trace.evaluation.log)
+
             if trace.evaluation.performance:
                 entry["latency_ms"] = trace.evaluation.performance.latency_ms
-                entry["reference_latency_ms"] = trace.evaluation.performance.reference_latency_ms
+                entry["reference_latency_ms"] = (
+                    trace.evaluation.performance.reference_latency_ms
+                )
                 entry["speedup_factor"] = trace.evaluation.performance.speedup_factor
             if trace.evaluation.correctness:
                 entry["max_abs_error"] = trace.evaluation.correctness.max_absolute_error
                 entry["max_rel_error"] = trace.evaluation.correctness.max_relative_error
             results[definition.name][trace.workload.uuid] = entry
 
-    return results
+    return results, result_trace_set
 
 
-def print_results(results: dict):
-    """Print benchmark results in a formatted way."""
+def save_results_json(
+    results: dict,
+    trace: TraceSet,
+    output: str,
+    output_dir: Path = PROJECT_ROOT / "output",
+) -> tuple[Path, Path]:
+    """Save summary log and viewer-friendly JSONL to local files."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = "benchmark_results"
+    first_trace = next((ts[0] for ts in trace.traces.values() if ts), None)
+    if first_trace is not None:
+        solution = first_trace.solution
+        timestamp = first_trace.evaluation.timestamp
+        safe_timestamp = timestamp.replace(":", "-").replace(".", "-")
+        stem = f"{solution}_{safe_timestamp}"
+
+    summary_path = output_dir / f"{stem}_summary.log"
+    viewer_path = output_dir / f"{stem}_traces.jsonl"
+
+    summary_path.write_text(output)
+    viewer_path.write_text(format_trace_jsonl(trace))
+
+    return summary_path, viewer_path
+
+
+def format_trace_jsonl(trace: TraceSet) -> str:
+    """Render traces as JSONL: one trace JSON object per line."""
+    lines = []
+    for traces in trace.traces.values():
+        for item in traces:
+            lines.append(
+                json.dumps(item.model_dump(mode="json"), separators=(",", ":"))
+            )
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def print_format_results(results: dict) -> str:
+    """Render benchmark results with the same layout as print_results."""
+    lines = []
     for def_name, traces in results.items():
-        print(f"\n{def_name}:")
+        lines.append(f"\n{def_name}:")
         for workload_uuid, result in traces.items():
             status = result.get("status")
-            print(f"  Workload {workload_uuid[:8]}...: {status}", end="")
+            line = f"  Workload {workload_uuid[:8]}...: {status}"
 
             if result.get("latency_ms") is not None:
-                print(f" | {result['latency_ms']:.3f} ms", end="")
+                line += f" | {result['latency_ms']:.3f} ms"
 
             if result.get("speedup_factor") is not None:
-                print(f" | {result['speedup_factor']:.2f}x speedup", end="")
+                line += f" | {result['speedup_factor']:.2f}x speedup"
 
             if result.get("max_abs_error") is not None:
                 abs_err = result["max_abs_error"]
                 rel_err = result.get("max_rel_error", 0)
-                print(f" | abs_err={abs_err:.2e}, rel_err={rel_err:.2e}", end="")
+                line += f" | abs_err={abs_err:.2e}, rel_err={rel_err:.2e}"
 
-            print()
+            lines.append(line)
+            print(line)  # Print each line immediately to terminal
+
+    return "\n".join(lines).lstrip("\n") + "\n"
 
 
 def main():
@@ -108,13 +164,18 @@ def main():
     print(f"Loaded: {solution.name} ({solution.definition})")
 
     print("\nRunning benchmark...")
-    results = run_benchmark(solution)
+    results, trace = run_benchmark(solution)
 
     if not results:
         print("No results returned!")
         return
 
-    print_results(results)
+    output = print_format_results(results)
+
+    # print
+    summary_path, viewer_path = save_results_json(results, trace, output)
+    print(f"\nSaved summary Logs: {summary_path}")
+    print(f"Saved viewer JSONL: {viewer_path}")
 
 
 if __name__ == "__main__":
