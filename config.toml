@@ -1,9 +1,9 @@
 [solution]
 name = "antnlp-triton-solution-v2" # Solution name
-definition = "gdn_decode_qk4_v8_d128_k_last"     # Track: gdn_prefill_qk4_v8_d128_k_last | gdn_decode_qk4_v8_d128_k_last
+definition = "gdn_prefill_qk4_v8_d128_k_last"     # Track: gdn_prefill_qk4_v8_d128_k_last | gdn_decode_qk4_v8_d128_k_last
 author = "antnlp"         # Team/author name
 
 [build]
 language = "triton"              # triton | cuda
-entry_point = "kernel_decode.py::run" # Kernel function name
+entry_point = "kernel_prefill.py::run" # Kernel function name
 destination_passing_style = false
