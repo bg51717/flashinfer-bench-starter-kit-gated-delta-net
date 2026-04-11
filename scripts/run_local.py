@@ -33,8 +33,8 @@ def run_benchmark(
 ) -> tuple[dict, TraceSet]:
     """Run benchmark locally and return summary results with trace set."""
     if config is None:
-        config = BenchmarkConfig(warmup_runs=2, iterations=2, num_trials=2)
-        # config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
+        # config = BenchmarkConfig(warmup_runs=2, iterations=2, num_trials=2)
+        config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
 
     trace_set_path = get_trace_set_path()
     trace_set = TraceSet.from_path(trace_set_path)
