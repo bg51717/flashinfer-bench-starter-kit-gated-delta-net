@@ -173,9 +173,9 @@ def main():
     output = print_format_results(results)
 
     # print
-    # summary_path, viewer_path = save_results_json(results, trace, output)
-    # print(f"\nSaved summary Logs: {summary_path}")
-    # print(f"Saved viewer JSONL: {viewer_path}")
+    summary_path, viewer_path = save_results_json(results, trace, output)
+    print(f"\nSaved summary Logs: {summary_path}")
+    print(f"Saved viewer JSONL: {viewer_path}")
 
 
 if __name__ == "__main__":
