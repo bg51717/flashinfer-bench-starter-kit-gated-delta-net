@@ -20,7 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import modal
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
-app = modal.App("flashinfer-bench")
+app = modal.App("GDN-Decode")
 
 trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True)
 output_volume = modal.Volume.from_name("output", create_if_missing=True)
@@ -55,7 +55,7 @@ image = (
 
 @app.function(
     image=image,
-    gpu="B200:1",
+    gpu="H200:1",
     timeout=14400,
     volumes={TRACE_SET_PATH: trace_volume, OUTPUT_PATH: output_volume},
 )
