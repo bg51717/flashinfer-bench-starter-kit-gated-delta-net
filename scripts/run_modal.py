@@ -23,21 +23,73 @@ from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 app = modal.App("flashinfer-bench")
 
 trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True)
+output_volume = modal.Volume.from_name("output", create_if_missing=True)
 TRACE_SET_PATH = "/data"
+OUTPUT_PATH = "/outputs"
 
 image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .pip_install("flashinfer-bench", "torch", "triton", "numpy")
+    modal.Image.from_registry(
+        "flashinfer/flashinfer-ci-cu132:20260401-2c675fb", add_python="3.12"
+    )
+    .apt_install("git", "wget", "build-essential", "cmake")
+    .run_commands(
+        # Force-reinstall latest main of flashinfer-bench. Override the
+        # PyPI 0.1.2 already in the image. Pip pulls/refreshes deps as
+        # needed (pydantic, safetensors, tvm-ffi, ...).
+        "pip install --force-reinstall --upgrade "
+        "git+https://github.com/flashinfer-ai/flashinfer-bench.git@main",
+    )
+    .pip_install(
+        # cupti-python is required for accurate GPU timing (per
+        # EVALUATION.md). Without it, flashinfer-bench's timer falls
+        # back to CUDA events, which include kernel-launch overhead
+        # (~2-4 μs per call) and over-report latency. The official
+        # image is *supposed* to ship this but the released 0.1.2
+        # dep-chain doesn't pull it in.
+        "cupti-python",
+    )
+    # Caches the CUTLASS clone + torch extension build dir across runs.
+    .env({"TORCH_EXTENSIONS_DIR": "/outputs/torch_ext_cache"})
 )
 
 
-@app.function(image=image, gpu="B200:1", timeout=3600, volumes={TRACE_SET_PATH: trace_volume})
+@app.function(
+    image=image,
+    gpu="B200:1",
+    timeout=14400,
+    volumes={TRACE_SET_PATH: trace_volume, OUTPUT_PATH: output_volume},
+)
 def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
     """Run benchmark on Modal B200 and return results."""
-    if config is None:
-        config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
+    import subprocess
 
-    trace_set = TraceSet.from_path(TRACE_SET_PATH)
+    # Lock clocks (best effort — fails without priv; logged, continue).
+    r = subprocess.run(
+        ["nvidia-smi", "-ac", "3996,1965"], capture_output=True, text=True
+    )
+    print(f"nvidia-smi -ac: rc={r.returncode} {r.stdout.strip()[:120]}")
+
+    if config is None:
+        # Match the equivalent CLI behavior:
+        # --warmup-runs 10 --iterations 50 --num-trials 3
+        # --use-isolated-runner --timeout 300
+        # config = BenchmarkConfig(
+        #     warmup_runs=10,
+        #     iterations=50,
+        #     num_trials=3,
+        #     use_isolated_runner=False,
+        #     timeout_seconds=300,
+        # )
+        config = BenchmarkConfig(
+            warmup_runs=1,
+            iterations=1,
+            num_trials=1,
+            use_isolated_runner=False,
+            timeout_seconds=300,
+        )
+
+    trace_set = TraceSet.from_path(TRACE_SET_PATH + "/mlsys26-contest")
+    # trace_set = TraceSet.from_path(TRACE_SET_PATH)
 
     if solution.definition not in trace_set.definitions:
         raise ValueError(f"Definition '{solution.definition}' not found in trace set")
@@ -57,7 +109,7 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
     )
 
     benchmark = Benchmark(bench_trace_set, config)
-    result_trace_set = benchmark.run_all(dump_traces=True)
+    result_trace_set = benchmark.run_all(dump_traces=True, resume=True)
 
     traces = result_trace_set.traces.get(definition.name, [])
     results = {definition.name: {}}
@@ -68,9 +120,16 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
                 "status": trace.evaluation.status.value,
                 "solution": trace.solution,
             }
+
+            # 报错的话打印日志
+            if entry["status"] != "PASSED":
+                print(trace.evaluation.log)
+
             if trace.evaluation.performance:
                 entry["latency_ms"] = trace.evaluation.performance.latency_ms
-                entry["reference_latency_ms"] = trace.evaluation.performance.reference_latency_ms
+                entry["reference_latency_ms"] = (
+                    trace.evaluation.performance.reference_latency_ms
+                )
                 entry["speedup_factor"] = trace.evaluation.performance.speedup_factor
             if trace.evaluation.correctness:
                 entry["max_abs_error"] = trace.evaluation.correctness.max_absolute_error
